@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#3b82f6">
+<title>随机出题 · 按科目练习</title>
+<style>
+  :root {
+    --primary: #3b82f6;
+    --primary-dark: #2563eb;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --txt: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --accent: #0ea5e9;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--txt);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 16px 14px 60px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 2px 4px;
+  }
+  header .logo {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800; flex-shrink: 0;
+  }
+  header h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  header p { margin: 0; font-size: 12px; color: var(--muted); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    margin-top: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .card h2 { font-size: 14px; color: var(--muted); font-weight: 600; margin: 0 0 12px; }
+
+  /* 科目选择 */
+  .subjects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .subject-chip {
+    flex: 1 1 auto;
+    min-width: 120px;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 10px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    background: #fff;
+    transition: all .15s;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .subject-chip .count {
+    display: block; font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px;
+  }
+  .subject-chip.on {
+    border-color: var(--primary);
+    background: #eff6ff;
+    color: var(--primary-dark);
+  }
+
+  /* 数量 */
+  .num-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .num-label { font-size: 14px; color: var(--muted); }
+  .stepper {
+    display: flex; align-items: center; gap: 0;
+    border: 1.5px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .stepper button {
+    width: 44px; height: 46px; font-size: 22px; border: none; background: #f8fafc;
+    color: var(--primary); cursor: pointer; line-height: 1;
+  }
+  .stepper button:active { background: #e2e8f0; }
+  .stepper input {
+    width: 64px; height: 46px; text-align: center; font-size: 18px; font-weight: 700;
+    border: none; border-left: 1.5px solid var(--border); border-right: 1.5px solid var(--border);
+    -moz-appearance: textfield;
+  }
+  .stepper input::-webkit-outer-spin-button,
+  .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .quick {
+    display: flex; gap: 8px;
+  }
+  .quick button {
+    border: 1.5px solid var(--border); background: #fff; border-radius: 8px;
+    padding: 6px 12px; font-size: 13px; color: var(--muted); cursor: pointer;
+  }
+  .quick button.on { border-color: var(--primary); color: var(--primary-dark); background: #eff6ff; }
+
+  .btn-main {
+    display: block; width: 100%; margin-top: 14px;
+    padding: 14px; font-size: 17px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    border: none; border-radius: 12px; cursor: pointer;
+    -webkit-user-select: none; user-select: none;
+    box-shadow: 0 6px 16px rgba(59,130,246,.3);
+    transition: transform .1s;
+  }
+  .btn-main:active { transform: scale(.985); }
+  .btn-main:disabled { opacity: .55; box-shadow: none; }
+
+  /* 出题区域 */
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+  .toolbar .meta { font-size: 13px; color: var(--muted); flex: 1; }
+  .toolbar button {
+    border: 1.5px solid var(--border); background: #fff; border-radius: 9px;
+    padding: 8px 12px; font-size: 13px; color: var(--primary-dark); cursor: pointer;
+  }
+  ul.qlist { list-style: none; margin: 14px 0 0; padding: 0; }
+  ul.qlist li {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 2px; border-bottom: 1px solid var(--border);
+  }
+  ul.qlist li:last-child { border-bottom: none; }
+  .qnum {
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px;
+    background: #eff6ff; color: var(--primary-dark);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; margin-top: 2px;
+  }
+  .qtext { font-size: 16px; color: var(--txt); word-break: break-word; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 10px; font-size: 15px; }
+  .empty .big { font-size: 44px; }
+
+  .footer-note { text-align: center; color: var(--muted); font-size: 12px; margin-top: 26px; }
+  .check { color: #16a34a; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">题</div>
+    <div>
+      <h1>随机出题 · 按科目练习</h1>
+      <p>选科目 → 定数量 → 随机出题 · 不判对错 · 只出题</p>
+    </div>
+  </header>
+
+  <!-- 题库数据（打包时注入） -->
+  <script id="bank-data" type="application/json">__DATA__</script>
+
+  <div class="card">
+    <h2>选择科目（可多选）</h2>
+    <div class="subjects" id="subjects"></div>
+  </div>
+
+  <div class="card">
+    <h2>出题数量</h2>
+    <div class="num-row">
+      <span class="num-label">题目数</span>
+      <div class="stepper">
+        <button id="minus" type="button">−</button>
+        <input id="numInput" type="number" min="1" step="1" value="10" aria-label="题目数量">
+        <button id="plus" type="button">＋</button>
+      </div>
+      <div class="quick" id="quick"></div>
+    </div>
+  </div>
+
+  <button class="btn-main" id="go" type="button">开始随机出题</button>
+
+  <div id="result">
+    <div class="card">
+      <div class="empty">
+        <div class="big">📝</div>
+        <div>选择科目与数量，点击上方「开始随机出题」</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">题库内嵌于页面 · 支持手机 / 平板 / 电脑 · 离线可用</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- 读取内嵌题库 ---------- */
+  var bank;
+  try {
+    bank = JSON.parse(document.getElementById("bank-data").textContent);
+  } catch (e) {
+    bank = [];
+  }
+  // 归一化：题库可能是 [{subject, questions:[{q,a}]}, ...]
+  if (!Array.isArray(bank)) bank = [];
+  // 每个 subject 存 { subject, questions } 或直接展开
+  var SUBJECTS = bank.map(function (s) {
+    return {
+      name: s.subject || "未知科目",
+      count: (s.questions || []).length,
+      questions: s.questions || []
+    };
+  });
+
+  /* ---------- 状态 ---------- */
+  var selected = {};
+  var quickVals = [5, 10, 20, 30];
+
+  /* ---------- 渲染科目 ---------- */
+  var subEl = document.getElementById("subjects");
+  SUBJECTS.forEach(function (s, idx) {
+    var chip = document.createElement("div");
+    chip.className = "subject-chip";
+    chip.dataset.idx = idx;
+    chip.innerHTML = "<span>" + s.name + "</span><span class='count'>" + s.count + " 题</span>";
+    chip.addEventListener("click", function () {
+      selected[idx] = !selected[idx];
+      chip.classList.toggle("on", !!selected[idx]);
+      syncQuick();
+    });
+    subEl.appendChild(chip);
+  });
+
+  /* ---------- 快捷数量 ---------- */
+  var quickEl = document.getElementById("quick");
+  quickVals.forEach(function (n) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = n;
+    b.addEventListener("click", function () {
+      setNum(n);
+      syncQuick();
+    });
+    quickEl.appendChild(b);
+  });
+  function setNum(n) {
+    var input = document.getElementById("numInput");
+    input.value = n;
+    clamp();
+  }
+  function syncQuick() {
+    var n = parseInt(document.getElementById("numInput").value, 10) || 1;
+    var btns = quickEl.querySelectorAll("button");
+    btns.forEach(function (b) {
+      b.classList.toggle("on", parseInt(b.textContent, 10) === n);
+    });
+  }
+
+  /* ---------- 步进器 ---------- */
+  var input = document.getElementById("numInput");
+  function clamp() {
+    var v = parseInt(input.value, 10);
+    if (isNaN(v) || v < 1) v = 1;
+    input.value = v;
+    syncQuick();
+  }
+  document.getElementById("minus").addEventListener("click", function () {
+    input.value = (parseInt(input.value, 10) || 1) - 1; clamp();
+  });
+  document.getElementById("plus").addEventListener("click", function () {
+    input.value = (parseInt(input.value, 10) || 1) + 1; clamp();
+  });
+  input.addEventListener("change", clamp);
+
+  /* ---------- 随机出题（相同题目不重复） ---------- */
+  function pick(n, questions) {
+    var pool = questions.slice();
+    var out = [];
+    var i, r;
+    for (i = 0; i < n && pool.length > 0; i++) {
+      r = Math.floor(Math.random() * pool.length);
+      out.push(pool.splice(r, 1)[0]);
+    }
+    return out;
+  }
+
+  function shuffle(arr) {
+    var a = arr.slice(), i, r, t;
+    for (i = a.length - 1; i > 0; i--) {
+      r = Math.floor(Math.random() * (i + 1));
+      t = a[i]; a[i] = a[r]; a[r] = t;
+    }
+    return a;
+  }
+
+  document.getElementById("go").addEventListener("click", function () {
+    var chosen = SUBJECTS.filter(function (s, idx) { return selected[idx]; });
+    var n = parseInt(input.value, 10) || 1;
+
+    if (chosen.length === 0) {
+      renderEmpty("请先选择至少一个科目");
+      return;
+    }
+
+    // 收集选定科目全部题目，打散
+    var all = [];
+    chosen.forEach(function (s) { all = all.concat(s.questions); });
+    all = shuffle(all); // 打散，避免集中某科目
+
+    var picked = pick(n, all);
+    renderList(picked, chosen, n);
+  });
+
+  /* ---------- 渲染 ---------- */
+  var result = document.getElementById("result");
+  function renderEmpty(msg) {
+    result.innerHTML =
+      '<div class="card"><div class="empty"><div class="big">📝</div><div>' +
+      (msg || "") + "</div></div></div>";
+  }
+  function renderList(items, chosen, n) {
+    var subjectNames = chosen.map(function (s) { return s.name; }).join("、");
+    var count = chosen.reduce(function (acc, s) { return acc + s.count; }, 0);
+
+    var html = '<div class="card">';
+    html += '<div class="toolbar"><span class="meta">科目：<b>' + subjectNames +
+      "</b> ｜ 本次 <b>" + n + "</b> 题 ｜ 共抽取到 " + items.length + " 题</span>";
+    html += '<button id="copyBtn" type="button">复制</button>';
+    html += '<button id="againBtn" type="button">再出一组</button>';
+    html += "</div>";
+
+    if (items.length === 0) {
+      if (count === 0) {
+        html += '<div class="empty">该科目暂无题目</div>';
+      } else {
+        html += '<div class="empty">题库题目不够（共 ' + count + " 题），已全部展示</div>";
+      }
+    }
+
+    html += "<ul class='qlist'>";
+    items.forEach(function (q, i) {
+      html += "<li><div class='qnum'>" + (i + 1) + "</div><div class='qtext'>" + esc(q.q) + "</div></li>";
+    });
+    html += "</ul>";
+    html += '<div class="footer-note">共 ' + items.length + " 题 ｜ 题目文本自动带填空下划线，请看题回忆</div>";
+    html += "</div>";
+    result.innerHTML = html;
+
+    // 复制
+    document.getElementById("copyBtn").addEventListener("click", function () {
+      var text = items.map(function (q, i) { return (i + 1) + ". " + q.q; }).join("\n");
+      copyText(text);
+    });
+    // 再出一组（换一批题目，尽量避免重复）
+    document.getElementById("againBtn").addEventListener("click", function () {
+      document.getElementById("go").click();
+    });
+  }
+
+  function esc(s) {
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : s;
+    return d.innerHTML;
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        toast("已复制到剪贴板");
+      }).catch(function () { fallbackCopy(text); });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); toast("已复制"); }
+    catch (e) { toast("复制失败，请手动复制"); }
+    document.body.removeChild(ta);
+  }
+  function toast(msg) {
+    var t = document.createElement("div");
+    t.textContent = msg;
+    t.style.cssText =
+      "position:fixed;left:50%;bottom:26px;transform:translateX(-50%);" +
+      "background:rgba(0,0,0,.8);color:#fff;padding:10px 18px;border-radius:10px;" +
+      "font-size:14px;z-index:99;box-shadow:0 4px 14px rgba(0,0,0,.2)";
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 1600);
+  }
+
+  syncQuick();
+})();
+</script>
+</body>
+</html>

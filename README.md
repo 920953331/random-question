@@ -22,7 +22,7 @@
 node src/build.mjs
 ```
 
-它会读取 `data/*.json`，合并内嵌进 `src/template.html`，覆盖写出 `outputs/出题工具.html`。
+它会读取 `data/*.json`，合并内嵌进 `src/template.html`，**同时生成两份产物**：`outputs/出题工具.html`（本地用）和 `index.html`（GitHub Pages 根目录用）。改完题库跑一次 build 再推送即自动更新线上页面。
 
 ### 3. 从 docx 重新导入题库（有新 docx 时）
 
@@ -57,12 +57,13 @@ random-question/
 │   └── 农业机械.json
 ├── src/
 │   ├── template.html       # 出题页面模板（含 __DATA__ 占位符，响应式）
-│   └── build.mjs           # 打包脚本：JSON -> 单文件 HTML
+│   └── build.mjs           # 打包脚本：JSON -> 单文件 HTML（同时写 index.html）
 ├── scripts/
 │   └── import_docx.py      # 导入/清洗：docx -> JSON
 ├── tests/
 │   ├── test_pick.mjs       # 出题算法测试
 │   └── test_clean.py       # 清洗逻辑测试
+├── index.html              # ★ 部署产物（GitHub Pages 根目录，由 build 生成）
 └── outputs/
     └── 出题工具.html        # ★ 最终产物（部署 / 使用这个）
 ```

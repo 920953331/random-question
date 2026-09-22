@@ -136,6 +136,85 @@ try {
   const statsA = (await api("/api/stats")).json;
   A.ok(statsA.learned === 10, "原账号进度不受影响", statsA.learned);
 
+  console.log("== 边界条件 ==");
+  {
+    const dbm = await import("../server/db.mjs");
+
+    // 非法 rating
+    r = await api("/api/review/rate", { method: "POST", body: { questionId: qid, rating: "bogus" } });
+    A.ok(r.status === 400, "非法 rating 被拒绝", r.json);
+
+    // 不存在的题目
+    r = await api("/api/review/rate", { method: "POST", body: { questionId: 999999, rating: "know" } });
+    A.ok(r.status === 400, "不存在的题目 id 被拒绝", r.json);
+    r = await api("/api/review/add", { method: "POST", body: { questionId: 999999 } });
+    A.ok(r.status === 400, "对不存在的题目「加入复习」被拒绝", r.json);
+
+    // 垃圾 JSON
+    {
+      const res = await fetch(BASE + "/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: "{不是合法json",
+      });
+      A.ok(res.status === 500 || res.status === 400, "非法 JSON 请求体被安全拒绝", res.status);
+    }
+
+    // 不存在的科目范围 → 空队列且不报错
+    await api("/api/settings", { method: "POST", body: { subjects: ["不存在的科目"] } });
+    r = await api("/api/review/today");
+    A.ok(r.status === 200 && r.json.dueCount === 0 && r.json.freshCount === 0,
+      "不存在的科目范围 → 空队列且不报错", { due: r.json.dueCount, fresh: r.json.freshCount });
+    // 注意：/api/random 的科目范围走查询参数（前端传入），不读服务端保存的设置
+    r = await api("/api/random?subjects=" + encodeURIComponent("不存在的科目") + "&count=5");
+    A.ok(r.status === 200 && r.json.questions.length === 0, "不存在科目的随机出题返回空");
+    r = await api("/api/random?count=5");
+    A.ok(r.json.questions.length === 5, "不传 subjects 参数时按全部科目出题", r.json.count);
+
+    // 空数组 = 全部科目
+    await api("/api/settings", { method: "POST", body: { subjects: [] } });
+    r = await api("/api/review/today");
+    A.ok(r.json.freshCount > 0, "清空范围 = 全部科目（恢复正常）", r.json.freshCount);
+
+    // count 边界
+    r = await api("/api/random?count=0");
+    A.ok(r.status === 200 && r.json.questions.length >= 1, "count=0 被夹到至少 1", r.json.count);
+    r = await api("/api/random?count=99999");
+    A.ok(r.json.questions.length <= 200, "count 超大被夹到上限 200", r.json.count);
+    r = await api("/api/random?count=abc");
+    A.ok(r.status === 200, "count 非数字不崩（走默认值）", r.json.count);
+
+    // 全部已学且都未到期 → 队列为空（不该硬塞提醒）
+    const subj = "农业机械";
+    const ids = dbm.db.prepare("SELECT id FROM questions WHERE subject = ?").all(subj);
+    const stmt = dbm.db.prepare(
+      `INSERT INTO progress (user_id, question_id, status, stage, next_review, last_review, review_count)
+       VALUES (?,?,'learned',0,'2099-01-01',NULL,1)
+       ON CONFLICT(user_id, question_id) DO UPDATE SET status='learned', next_review='2099-01-01'`
+    );
+    for (const q of ids) stmt.run(uid, q.id);
+    await api("/api/settings", { method: "POST", body: { subjects: [subj] } });
+    r = await api("/api/review/today");
+    A.ok(r.json.dueCount === 0 && r.json.freshCount === 0,
+      `${subj} 全部已学且未到期 → 队列为空（不硬塞提醒）`, { due: r.json.dueCount, fresh: r.json.freshCount });
+
+    // 让该科目全部到期 → 应全部推出、且无未学可混
+    dbm.db.prepare("UPDATE progress SET next_review='2000-01-01' WHERE user_id=? AND status='learned'").run(uid);
+    r = await api("/api/review/today");
+    A.ok(r.json.dueCount >= ids.length, "到期全部推出、不限量", r.json.dueCount);
+    A.ok(r.json.freshCount === 0, "该范围已无未学 → 混入 0 个", r.json.freshCount);
+
+    // 超长用户名被拒绝
+    r = await api("/api/register", {
+      method: "POST", auth: false,
+      body: { username: "x".repeat(500), password: "pass123456", code: CODE },
+    });
+    A.ok(r.status === 400, "超长用户名被拒绝", r.json);
+
+    // 恢复为全部科目，避免影响后续断言
+    await api("/api/settings", { method: "POST", body: { subjects: [] } });
+  }
+
   console.log("== 登出 ==");
   r = await api("/api/logout", { method: "POST" });
   A.ok(r.json.ok, "登出成功");

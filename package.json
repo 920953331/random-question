@@ -1,0 +1,20 @@
+{
+  "name": "random-question",
+  "version": "2.0.0",
+  "private": true,
+  "description": "多用户知识点复习系统：卡片式三档自评 + 艾宾浩斯阶梯复习计划 + 随机出题（零外部依赖，仅用 Node 内置模块）",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node server/server.mjs",
+    "seed": "node server/seed.mjs",
+    "test": "node tests/test_stages.mjs && node tests/test_api.mjs && node tests/test_ui.mjs",
+    "test:algo": "node tests/test_stages.mjs",
+    "test:api": "node tests/test_api.mjs",
+    "test:ui": "node tests/test_ui.mjs",
+    "import": "python scripts/import_docx.py",
+    "build:static": "node src/build.mjs"
+  }
+}

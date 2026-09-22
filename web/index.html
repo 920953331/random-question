@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#3b82f6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>知识点复习</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ==================== 登录 / 注册 ==================== -->
+<div id="loginView">
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">复</div>
+      <h1>知识点复习</h1>
+      <p>按遗忘曲线安排复习 · 多设备同步</p>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <button id="tabLogin" class="on" type="button">登录</button>
+        <button id="tabRegister" type="button">注册</button>
+      </div>
+
+      <form id="authForm">
+        <label class="field">
+          <span>用户名</span>
+          <input id="username" type="text" autocomplete="username" placeholder="2-24 个字符" required>
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <input id="password" type="password" autocomplete="current-password" placeholder="至少 6 位" required>
+        </label>
+        <label class="field hidden" id="codeField">
+          <span>注册口令</span>
+          <input id="code" type="password" placeholder="注册需要口令" autocomplete="off">
+        </label>
+        <div class="err" id="authErr"></div>
+        <button class="btn" id="authSubmit" type="submit">登录</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 主应用 ==================== -->
+<div id="appView" class="hidden">
+
+  <!-- ---------- 复习 ---------- -->
+  <section id="reviewPage">
+    <div class="wrap">
+      <div class="review-head">
+        <div class="progress-pill" id="reviewProgress">加载中…</div>
+        <div class="progress-pill" id="reviewScope">全部科目</div>
+      </div>
+      <div id="reviewBody"></div>
+    </div>
+  </section>
+
+  <!-- ---------- 统计 ---------- -->
+  <section id="statsPage" class="hidden">
+    <div class="wrap">
+      <h2 class="sec">学习统计</h2>
+      <div class="stat-grid" id="statsGrid"></div>
+
+      <h2 class="sec" style="margin-top:20px">已学知识点 · 间隔分布</h2>
+      <div class="card" id="stageBox"></div>
+
+      <h2 class="sec" style="margin-top:20px">自评分布</h2>
+      <div class="card" id="ratingBox"></div>
+    </div>
+  </section>
+
+  <!-- ---------- 随机出题 ---------- -->
+  <section id="randomPage" class="hidden">
+    <div class="wrap">
+      <h2 class="sec">随机出题（不记录进度）</h2>
+      <div class="card">
+        <div id="randomSubjects" class="subj-list"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px">
+          <span class="muted" style="font-size:14px">题数</span>
+          <input id="randomCount" type="number" min="1" max="200" value="10" style="width:90px">
+          <button class="btn sm" id="randomGo" type="button" style="flex:1">随机出题</button>
+        </div>
+      </div>
+      <div id="randomResult" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ---------- 我的 ---------- -->
+  <section id="mePage" class="hidden">
+    <div class="wrap">
+      <h2 class="sec">账号</h2>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:17px;font-weight:700" id="meName">—</div>
+            <div class="muted" style="font-size:12px">学习进度已同步到服务器</div>
+          </div>
+          <button class="btn ghost sm" id="logoutBtn" type="button">退出登录</button>
+        </div>
+      </div>
+
+      <h2 class="sec" style="margin-top:20px">复习范围（不勾选 = 全部科目）</h2>
+      <div class="card">
+        <div id="meSubjects" class="subj-list"></div>
+        <button class="btn" id="saveScope" type="button" style="margin-top:14px">保存复习范围</button>
+        <div class="muted center" style="font-size:12px;margin-top:8px">
+          影响「复习」与「随机出题」的抽题科目
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- 底部导航 ---------- -->
+  <nav class="nav">
+    <button data-page="review" class="on" type="button">
+      <span class="ico">📖</span><span>复习</span>
+      <span class="badge hidden" id="navBadge">0</span>
+    </button>
+    <button data-page="random" type="button"><span class="ico">🎲</span><span>出题</span></button>
+    <button data-page="stats" type="button"><span class="ico">📊</span><span>统计</span></button>
+    <button data-page="me" type="button"><span class="ico">👤</span><span>我的</span></button>
+  </nav>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<script src="/app.js"></script>
+</body>
+</html>

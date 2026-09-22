@@ -1,0 +1,24 @@
+# 统一换行符策略
+# 默认由 git 自动判定文本文件
+* text=auto
+
+# Shell 脚本必须用 LF，否则在 Linux 上 shebang 会失效（\r 导致 bad interpreter）
+*.sh text eol=lf
+
+# 代码统一 LF
+*.mjs text eol=lf
+*.js  text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.py  text eol=lf
+
+# Windows 专用脚本保留 CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# 二进制文件不做转换
+*.docx binary
+*.png  binary
+*.jpg  binary
+*.db   binary

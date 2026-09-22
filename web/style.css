@@ -1,0 +1,191 @@
+/* web/style.css —— 响应式样式，手机 / 平板 / 电脑自适应，配色对标背单词类 App */
+:root {
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --bg: #f1f5f9;
+  --card: #ffffff;
+  --txt: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+
+  --know: #14b8a6;      /* 认识 · 青绿 */
+  --know-dark: #0d9488;
+  --vague: #f59e0b;     /* 模糊 · 琥珀 */
+  --vague-dark: #d97706;
+  --forget: #ef4444;    /* 忘记 · 红 */
+  --forget-dark: #dc2626;
+
+  --nav-h: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--txt);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---------------- 通用 ---------------- */
+.hidden { display: none !important; }
+.wrap { max-width: 680px; margin: 0 auto; padding: 14px 14px calc(24px + var(--nav-h) + var(--safe-bottom)); }
+.center { text-align: center; }
+.muted { color: var(--muted); }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.card + .card { margin-top: 12px; }
+h2.sec { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 12px; }
+
+button { font-family: inherit; cursor: pointer; }
+.btn {
+  display: block; width: 100%; padding: 14px; font-size: 16px; font-weight: 700;
+  color: #fff; background: linear-gradient(135deg, var(--primary), #0ea5e9);
+  border: none; border-radius: 12px; box-shadow: 0 6px 16px rgba(59,130,246,.28);
+  transition: transform .1s;
+}
+.btn:active { transform: scale(.985); }
+.btn:disabled { opacity: .55; box-shadow: none; }
+.btn.ghost {
+  background: #fff; color: var(--primary-dark);
+  border: 1.5px solid var(--border); box-shadow: none;
+}
+.btn.sm { padding: 9px 14px; font-size: 14px; width: auto; display: inline-block; }
+
+input[type=text], input[type=password], input[type=number] {
+  width: 100%; padding: 13px 14px; font-size: 16px; border: 1.5px solid var(--border);
+  border-radius: 11px; background: #fff; color: var(--txt); outline: none;
+  font-family: inherit;
+}
+input:focus { border-color: var(--primary); }
+
+label.field { display: block; margin-bottom: 12px; }
+label.field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.err { color: var(--forget-dark); font-size: 14px; min-height: 20px; margin: 6px 0; }
+.toast-wrap { position: fixed; left: 50%; bottom: calc(24px + var(--nav-h)); transform: translateX(-50%); z-index: 200; }
+
+/* ---------------- 登录页 ---------------- */
+#loginView .wrap { max-width: 420px; padding-top: 8vh; }
+.brand { text-align: center; margin-bottom: 22px; }
+.brand .logo {
+  width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 12px;
+  background: linear-gradient(135deg, var(--primary), #0ea5e9); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800;
+}
+.brand h1 { font-size: 22px; margin: 0 0 4px; }
+.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tabs button {
+  flex: 1; padding: 10px; border-radius: 10px; border: 1.5px solid var(--border);
+  background: #fff; color: var(--muted); font-size: 15px; font-weight: 600;
+}
+.tabs button.on { border-color: var(--primary); color: var(--primary-dark); background: #eff6ff; }
+
+/* ---------------- 复习卡片 ---------------- */
+.review-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.progress-pill {
+  font-size: 12px; color: var(--muted); background: #fff; border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 12px;
+}
+.qcard {
+  background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+  padding: 22px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  min-height: 44vh; display: flex; flex-direction: column;
+}
+.qcard .tag {
+  display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: #eff6ff; color: var(--primary-dark); margin-bottom: 16px; align-self: flex-start;
+}
+.qcard .tag.new { background: #fef3c7; color: #b45309; }
+.qcard .qtext {
+  font-size: 21px; line-height: 1.65; font-weight: 600; flex: 1;
+  display: flex; align-items: center; word-break: break-word;
+}
+.qcard .hint { font-size: 13px; color: var(--muted); margin-top: 14px; }
+
+/* 三档按钮 */
+.rate-row { display: flex; gap: 10px; margin-top: 14px; }
+.rate-btn {
+  flex: 1; border: none; border-radius: 14px; padding: 14px 6px; color: #fff;
+  font-size: 16px; font-weight: 700; display: flex; flex-direction: column;
+  align-items: center; gap: 3px; transition: transform .1s;
+}
+.rate-btn:active { transform: scale(.97); }
+.rate-btn .sub { font-size: 11px; font-weight: 500; opacity: .92; }
+.rate-btn.know { background: var(--know); }
+.rate-btn.vague { background: var(--vague); }
+.rate-btn.forget { background: var(--forget); }
+
+.add-row { margin-top: 12px; }
+
+/* ---------------- 底部导航 ---------------- */
+.nav {
+  position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--nav-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: rgba(255,255,255,.96); backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border); display: flex; z-index: 100;
+}
+.nav button {
+  flex: 1; border: none; background: none; color: var(--muted); font-size: 11px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; position: relative; padding: 0;
+}
+.nav button.on { color: var(--primary-dark); }
+.nav button .ico { font-size: 19px; line-height: 1; }
+.nav .badge {
+  position: absolute; top: 6px; left: 50%; margin-left: 8px;
+  background: var(--forget); color: #fff; font-size: 10px; font-weight: 700;
+  min-width: 17px; height: 17px; border-radius: 999px; display: flex;
+  align-items: center; justify-content: center; padding: 0 4px;
+}
+
+/* ---------------- 统计 ---------------- */
+.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+.stat-box .num { font-size: 26px; font-weight: 800; color: var(--primary-dark); line-height: 1.2; }
+.stat-box .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.bar-row .stage-name { width: 74px; color: var(--muted); flex-shrink: 0; }
+.bar-track { flex: 1; height: 20px; background: #f1f5f9; border-radius: 6px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary), #0ea5e9); border-radius: 6px; }
+.bar-row .cnt { width: 40px; text-align: right; color: var(--muted); flex-shrink: 0; }
+
+/* ---------------- 科目勾选 ---------------- */
+.subj-list { display: flex; flex-direction: column; gap: 8px; }
+.subj-item {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border: 1.5px solid var(--border); border-radius: 12px; background: #fff;
+  cursor: pointer; user-select: none;
+}
+.subj-item.on { border-color: var(--primary); background: #eff6ff; }
+.subj-item .name { flex: 1; font-weight: 600; font-size: 15px; }
+.subj-item .cnt { font-size: 12px; color: var(--muted); }
+.subj-item .tick { color: var(--primary); font-weight: 800; }
+
+/* ---------------- 随机出题列表 ---------------- */
+ul.qlist { list-style: none; margin: 0; padding: 0; }
+ul.qlist li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+ul.qlist li:last-child { border-bottom: none; }
+.qnum {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; background: #eff6ff;
+  color: var(--primary-dark); display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; margin-top: 2px;
+}
+.qtext-s { font-size: 16px; word-break: break-word; }
+
+/* ---------------- 完成态 ---------------- */
+.done-box { text-align: center; padding: 40px 16px; }
+.done-box .big { font-size: 52px; }
+.done-box h3 { margin: 10px 0 6px; font-size: 19px; }

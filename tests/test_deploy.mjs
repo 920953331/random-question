@@ -128,11 +128,24 @@ if (existsSync(unitFile)) {
 // 脚本输出应提示安全组
 A.ok(out1.includes("安全组"), "输出提示了腾讯云安全组");
 
-/* ---------------- 场景 2：仅本机监听（Nginx 反代） ---------------- */
-console.log("\n== 场景 2：SERVE_PUBLIC=0（配合 Nginx 反代）==");
+/* ---------------- 场景 2：仅本机监听 + 重新部署不能丢学习进度 ---------------- */
+console.log("\n== 场景 2：重新部署（覆盖更新）应保留学习进度 ==");
+
+// 先造一个用户 + 学习进度，模拟"用户已经复习过"
+const seedProgress = spawnSync(process.execPath, ["-e", `
+  const {DatabaseSync}=require('node:sqlite');
+  const db=new DatabaseSync(${JSON.stringify(dbFile)});
+  db.exec("PRAGMA foreign_keys=ON");
+  db.prepare("INSERT INTO users (username,password_hash,salt,created_at) VALUES ('probe_user','h','s','2026-01-01')").run();
+  const uid = db.prepare("SELECT id FROM users WHERE username='probe_user'").get().id;
+  const qid = db.prepare("SELECT id FROM questions LIMIT 1").get().id;
+  db.prepare("INSERT INTO progress (user_id,question_id,status,stage,next_review,review_count) VALUES (?,?,'learned',3,'2099-01-01',5)").run(uid,qid);
+  process.stdout.write('seeded');
+`], { encoding: "utf-8" });
+A.ok((seedProgress.stdout || "").trim() === "seeded", "已预置一个用户的学习进度", seedProgress.stderr);
+
 rmSync(systemdDir, { recursive: true, force: true });
 res = runInstall({ servePublic: "0", port: "9000", registerCode: "code2" });
-const out2 = (res.stdout || "") + (res.stderr || "");
 A.ok(res.status === 0, "第二次安装（覆盖更新）成功", res.status);
 if (existsSync(unitFile)) {
   const unit2 = readFileSync(unitFile, "utf-8");
@@ -140,8 +153,56 @@ if (existsSync(unitFile)) {
   A.ok(unit2.includes("Environment=PORT=9000"), "端口更新为 9000");
   A.ok(unit2.includes("Environment=REGISTER_CODE=code2"), "口令更新成功");
 }
-// 覆盖更新不应清空已有数据库
-A.ok(existsSync(dbFile), "覆盖更新后数据库仍存在（学习进度不丢）");
+A.ok(existsSync(dbFile), "覆盖更新后数据库仍存在");
+
+// 关键：学习进度不能被清掉
+const keepCheck = spawnSync(process.execPath, ["-e", `
+  const {DatabaseSync}=require('node:sqlite');
+  const db=new DatabaseSync(${JSON.stringify(dbFile)});
+  const q = db.prepare("SELECT COUNT(*) c FROM questions").get().c;
+  const u = db.prepare("SELECT COUNT(*) c FROM users WHERE username='probe_user'").get().c;
+  const p = db.prepare("SELECT stage,review_count FROM progress").all();
+  process.stdout.write(JSON.stringify({q,u,p}));
+`], { encoding: "utf-8" });
+let keep = {};
+try { keep = JSON.parse((keepCheck.stdout || "{}").trim()); } catch {}
+A.ok(keep.q === 495, "重新部署后题库仍为 495 题（append 模式不重复导入）", keep.q);
+A.ok(keep.u === 1, "重新部署后用户账号仍在", keep.u);
+A.ok(Array.isArray(keep.p) && keep.p.length === 1, "重新部署后学习进度仍在（未被清空）", keep.p);
+A.ok(keep.p && keep.p[0] && keep.p[0].stage === 3, "学习进度内容完整保留（stage=3）", keep.p);
+
+/* ---------------- 场景 2b：reset 模式确实会清空（危险操作需显式指定） ---------------- */
+console.log("\n== 场景 2b：SEED_MODE=reset 会清空进度（危险操作需显式指定）==");
+{
+  const env = {
+    ...process.env,
+    PATH: `${stubBin}:${process.env.PATH}`,
+    APP_DIR: appDir, DATA_DIR: dataDir, SYSTEMD_DIR: systemdDir,
+    SERVE_PUBLIC: "0", PORT: "9000", REGISTER_CODE: "code2", SEED_MODE: "reset",
+  };
+  const scriptPosix = spawnSync(bash, ["-lc", `cygpath -u "${join(WS, "deploy", "install-on-server.sh")}"`], { encoding: "utf-8" }).stdout.trim();
+  const r = spawnSync(bash, [scriptPosix, WS], { env, encoding: "utf-8" });
+  A.ok(r.status === 0, "reset 模式执行成功", r.status);
+  const after = spawnSync(process.execPath, ["-e", `
+    const {DatabaseSync}=require('node:sqlite');
+    const db=new DatabaseSync(${JSON.stringify(dbFile)});
+    db.exec("PRAGMA foreign_keys=ON");
+    process.stdout.write(JSON.stringify({
+      q: db.prepare("SELECT COUNT(*) c FROM questions").get().c,
+      u: db.prepare("SELECT COUNT(*) c FROM users WHERE username='probe_user'").get().c,
+    }));
+  `], { encoding: "utf-8" });
+  let a2 = {};
+  try { a2 = JSON.parse((after.stdout || "{}").trim()); } catch {}
+  A.ok(a2.q === 495, "reset 后题库仍为 495 题", a2.q);
+  A.ok(a2.u === 1, "reset 只清题库，用户账号保留（账号与题库分离）", a2.u);
+  const p2 = spawnSync(process.execPath, ["-e", `
+    const {DatabaseSync}=require('node:sqlite');
+    const db=new DatabaseSync(${JSON.stringify(dbFile)});
+    process.stdout.write(String(db.prepare("SELECT COUNT(*) c FROM progress").get().c));
+  `], { encoding: "utf-8" });
+  A.ok(Number((p2.stdout || "0").trim()) === 0, "reset 模式下学习进度被清空（符合预期，故默认用 append）");
+}
 
 /* ---------------- 场景 3：缺口令应报错 ---------------- */
 console.log("\n== 场景 3：未设置 REGISTER_CODE 应清晰报错 ==");

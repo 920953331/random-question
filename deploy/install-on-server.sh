@@ -72,9 +72,21 @@ else
   cp "$SRC_DIR/package.json" "$APP_DIR/" 2>/dev/null || true
 fi
 
-echo "==> 4/6 导入题库到数据库"
-cd "$APP_DIR"
-DB_PATH="$DATA_DIR/learning.db" node server/seed.mjs
+# 题库导入模式：
+#   append（默认，安全）—— 保留已有题目与用户学习进度，只补新增题目
+#   reset             —— 清空题库后重新导入；注意 progress 表对 questions 有 ON DELETE CASCADE，
+#                        清空题库会连带清掉所有用户的学习进度，仅用于初始化或重建
+SEED_MODE="${SEED_MODE:-append}"
+
+if [ "$SEED_MODE" = "reset" ]; then
+  echo "==> 4/6 导入题库（reset 模式：清空后重新导入，会清除学习进度！）"
+  cd "$APP_DIR"
+  DB_PATH="$DATA_DIR/learning.db" node server/seed.mjs
+else
+  echo "==> 4/6 导入题库（append 模式：保留已有进度，仅补充新增题目）"
+  cd "$APP_DIR"
+  DB_PATH="$DATA_DIR/learning.db" node server/seed.mjs --append
+fi
 
 echo "==> 5/6 写入 systemd 服务"
 HOST_BIND="0.0.0.0"

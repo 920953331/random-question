@@ -150,14 +150,59 @@ try {
     r = await api("/api/review/add", { method: "POST", body: { questionId: 999999 } });
     A.ok(r.status === 400, "对不存在的题目「加入复习」被拒绝", r.json);
 
-    // 垃圾 JSON
+    // 垃圾 JSON —— 必须是 400（不能是 500）
     {
       const res = await fetch(BASE + "/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json", Cookie: cookie },
         body: "{不是合法json",
       });
-      A.ok(res.status === 500 || res.status === 400, "非法 JSON 请求体被安全拒绝", res.status);
+      A.ok(res.status === 400, "非法 JSON 请求体返回 400（不是 500）", res.status);
+    }
+
+    // HTTP keep-alive：提前 return（401/429）不得留下未消费的请求体破坏连接
+    {
+      const http = await import("node:http");
+      const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+      const request = (path, method, body, extra = {}) =>
+        new Promise((resolve, reject) => {
+          const u = new URL(BASE + path);
+          const rq = http.request(
+            {
+              hostname: u.hostname, port: u.port, path: u.pathname + u.search,
+              method, agent, headers: { "Content-Type": "application/json", ...extra },
+            },
+            (rs) => {
+              // 必须在回调一开始就取端口：'end' 触发时 rs.socket 已被置空
+              const localPort = rs.socket ? rs.socket.localPort : null;
+              let data = "";
+              rs.on("data", (c) => (data += c));
+              rs.on("end", () => resolve({ status: rs.statusCode, body: data, localPort }));
+            }
+          );
+          rq.on("error", reject);
+          if (body) rq.write(body);
+          rq.end();
+        });
+
+      try {
+        const r1 = await request("/api/settings", "POST", JSON.stringify({ subjects: ["x"] }));
+        A.ok(r1.status === 401, "未登录 POST（带 body）返回 401", r1.status);
+        const r2 = await request("/api/health", "GET", null);
+        A.ok(r2.status === 200, "同一 keep-alive 连接后续请求正常（body 已消费）", r2.status);
+        const r3 = await request("/api/health", "GET", null);
+        A.ok(r3.status === 200, "keep-alive 连接可连续复用", r3.status);
+        // 真正证明"复用了同一连接"：三次请求的本地端口应完全一致
+        A.ok(
+          r1.localPort === r2.localPort && r2.localPort === r3.localPort,
+          `三次请求复用同一 TCP 连接（本地端口 ${r1.localPort}）`,
+          { p1: r1.localPort, p2: r2.localPort, p3: r3.localPort }
+        );
+      } catch (e) {
+        A.ok(false, "keep-alive 请求链不应报错：" + e.message);
+      } finally {
+        agent.destroy();
+      }
     }
 
     // 不存在的科目范围 → 空队列且不报错

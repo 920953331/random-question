@@ -211,7 +211,7 @@ async function handleApi(req, res, pathname, query) {
     if (isRateLimited(ip)) {
       return sendJson(res, 429, { ok: false, error: "尝试次数过多，请稍后再试" });
     }
-    const body = await readBody(req);
+    const body = req.parsedBody || {};
     try {
       const r = register(body.username, body.password, body.code);
       clearAuthFailures(ip);
@@ -228,7 +228,7 @@ async function handleApi(req, res, pathname, query) {
     if (isRateLimited(ip)) {
       return sendJson(res, 429, { ok: false, error: "尝试次数过多，请稍后再试" });
     }
-    const body = await readBody(req);
+    const body = req.parsedBody || {};
     try {
       const r = login(body.username, body.password);
       clearAuthFailures(ip);
@@ -265,7 +265,7 @@ async function handleApi(req, res, pathname, query) {
   }
 
   if (pathname === "/api/settings" && method === "POST") {
-    const body = await readBody(req);
+    const body = req.parsedBody || {};
     const subs = Array.isArray(body.subjects) ? body.subjects.filter((x) => typeof x === "string") : [];
     setSubjects(user.id, subs);
     return sendJson(res, 200, { ok: true, settings: getSettings(user.id) });
@@ -289,7 +289,7 @@ async function handleApi(req, res, pathname, query) {
 
   // 对已学知识点自评
   if (pathname === "/api/review/rate" && method === "POST") {
-    const body = await readBody(req);
+    const body = req.parsedBody || {};
     try {
       const r = rateLearned(user.id, Number(body.questionId), String(body.rating), ymd());
       return sendJson(res, 200, { ok: true, result: r });
@@ -300,7 +300,7 @@ async function handleApi(req, res, pathname, query) {
 
   // 对未学提醒自评（不转已学）
   if (pathname === "/api/review/rate-fresh" && method === "POST") {
-    const body = await readBody(req);
+    const body = req.parsedBody || {};
     try {
       const r = rateFresh(user.id, Number(body.questionId), String(body.rating), ymd());
       return sendJson(res, 200, { ok: true, result: r });
@@ -311,7 +311,7 @@ async function handleApi(req, res, pathname, query) {
 
   // 把未学知识点加入复习（转为已学）
   if (pathname === "/api/review/add" && method === "POST") {
-    const body = await readBody(req);
+    const body = req.parsedBody || {};
     try {
       const r = addToReview(user.id, Number(body.questionId), ymd());
       return sendJson(res, 200, { ok: true, result: r });
@@ -355,6 +355,17 @@ const server = http.createServer(async (req, res) => {
   try {
     applySecurityHeaders(res);
 
+    // 关键：先把请求体一次性读完再分发路由。
+    // 否则任何提前 return（如 401/429）都会留下未消费的请求体，
+    // 导致 HTTP keep-alive 连接无法复用，客户端出现 "other side closed"。
+    if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
+      try {
+        req.parsedBody = await readBody(req);
+      } catch (e) {
+        return sendJson(res, 400, { ok: false, error: e.message });
+      }
+    }
+
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = decodeURIComponent(url.pathname);
 
@@ -369,6 +380,10 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
+
+// keep-alive 超时显式设置：略大于常见反代/客户端默认值，避免连接被过早关闭。
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 export function start(port = PORT, host = HOST) {
   return new Promise((resolve) => {

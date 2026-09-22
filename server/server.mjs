@@ -33,7 +33,57 @@ const WEB_DIR = join(__dirname, "..", "web");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 
+// 登录/注册失败限流（防止公网暴力破解）
+const AUTH_MAX_FAILS = Number(process.env.AUTH_MAX_FAILS || 10);
+const AUTH_WINDOW_MS = Number(process.env.AUTH_WINDOW_MS || 10 * 60 * 1000);
+
 initSchema();
+
+/* ---------------------------------------------------------------- 安全 */
+
+/** 统一安全响应头。 */
+function applySecurityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+}
+
+/** 取客户端 IP（优先反向代理头）。 */
+function clientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.length > 0) {
+    return xff.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "unknown";
+}
+
+// ip -> { count, firstAt }
+const authFails = new Map();
+
+function isRateLimited(ip) {
+  const rec = authFails.get(ip);
+  if (!rec) return false;
+  if (Date.now() - rec.firstAt > AUTH_WINDOW_MS) {
+    authFails.delete(ip);
+    return false;
+  }
+  return rec.count >= AUTH_MAX_FAILS;
+}
+
+function recordAuthFailure(ip) {
+  const now = Date.now();
+  const rec = authFails.get(ip);
+  if (!rec || now - rec.firstAt > AUTH_WINDOW_MS) {
+    authFails.set(ip, { count: 1, firstAt: now });
+  } else {
+    rec.count++;
+  }
+}
+
+function clearAuthFailures(ip) {
+  authFails.delete(ip);
+}
 
 /* ---------------------------------------------------------------- 工具 */
 
@@ -157,23 +207,35 @@ async function handleApi(req, res, pathname, query) {
   }
 
   if (pathname === "/api/register" && method === "POST") {
+    const ip = clientIp(req);
+    if (isRateLimited(ip)) {
+      return sendJson(res, 429, { ok: false, error: "尝试次数过多，请稍后再试" });
+    }
     const body = await readBody(req);
     try {
       const r = register(body.username, body.password, body.code);
+      clearAuthFailures(ip);
       setSessionCookie(res, r.token);
       return sendJson(res, 200, { ok: true, user: r.user });
     } catch (e) {
+      recordAuthFailure(ip);
       return sendJson(res, 400, { ok: false, error: e.message });
     }
   }
 
   if (pathname === "/api/login" && method === "POST") {
+    const ip = clientIp(req);
+    if (isRateLimited(ip)) {
+      return sendJson(res, 429, { ok: false, error: "尝试次数过多，请稍后再试" });
+    }
     const body = await readBody(req);
     try {
       const r = login(body.username, body.password);
+      clearAuthFailures(ip);
       setSessionCookie(res, r.token);
       return sendJson(res, 200, { ok: true, user: r.user });
     } catch (e) {
+      recordAuthFailure(ip);
       return sendJson(res, 400, { ok: false, error: e.message });
     }
   }
@@ -291,6 +353,8 @@ async function handleApi(req, res, pathname, query) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    applySecurityHeaders(res);
+
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const pathname = decodeURIComponent(url.pathname);
 

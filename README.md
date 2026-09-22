@@ -11,6 +11,7 @@
 - 👥 **多账号 + 服务器同步**：注册登录，各账号进度独立，手机平板电脑共用一份进度
 - 🎲 **保留随机出题**：自由练习模式，不记录进度
 - 📦 **零外部依赖**：只用 Node.js 内置模块（`node:http` / `node:sqlite` / `node:crypto`），无需 `npm install`、无需数据库服务
+- 🔒 **基础安全**：密码 scrypt 加盐哈希、HttpOnly 会话 Cookie、注册口令、登录失败限流、安全响应头
 
 ---
 
@@ -45,6 +46,8 @@ REGISTER_CODE=my-code node server/server.mjs
 | `HOST` | `0.0.0.0` | 监听地址；配合 Nginx 可设 `127.0.0.1` |
 | `REGISTER_CODE` | `ask-owner` | 注册口令（**生产环境必须修改**） |
 | `DB_PATH` | `<项目>/var/learning.db` | 数据库文件路径 |
+| `AUTH_MAX_FAILS` | `10` | 同 IP 时间窗内允许的登录/注册失败次数 |
+| `AUTH_WINDOW_MS` | `600000` | 限流时间窗（毫秒） |
 
 ---
 

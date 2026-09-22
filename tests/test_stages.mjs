@@ -1,6 +1,14 @@
 // tests/test_stages.mjs —— 复习算法纯逻辑单元测试（不需要数据库/网络）。
 // 用法：node tests/test_stages.mjs
-import { STAGES, intervalDays, nextStage, ratingPreviews } from "../server/review.mjs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// review.mjs 会连带导入 db.mjs，而 db.mjs 在导入时就会打开数据库文件。
+// 这里先把 DB_PATH 指向临时目录，避免在项目里生成 var/learning.db。
+process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), "rq-algo-")), "algo.db");
+
+const { STAGES, intervalDays, nextStage, ratingPreviews } = await import("../server/review.mjs");
 
 let pass = 0, fail = 0;
 function ok(cond, msg, extra) {

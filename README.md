@@ -54,6 +54,7 @@ REGISTER_CODE=my-code node server/server.mjs
 npm test              # 全部测试
 npm run test:algo     # 复习算法纯逻辑单测（快，无需网络）
 npm run test:api      # 后端接口端到端（自建临时库与服务）
+npm run test:deploy   # 部署脚本模拟测试（打桩跑 install-on-server.sh，校验生成的 systemd 单元）
 npm run test:ui       # 前端真实浏览器端到端（CDP 驱动 Edge/Chrome）
 ```
 
@@ -83,6 +84,7 @@ random-question/
 ├── tests/                  # 测试
 │   ├── test_stages.mjs     # 算法单测
 │   ├── test_api.mjs        # 接口端到端
+│   ├── test_deploy.mjs     # 部署脚本模拟测试
 │   ├── test_ui.mjs         # 浏览器端到端
 │   └── _harness.mjs        # 测试基座
 ├── scripts/import_docx.py  # docx → JSON 清洗导入

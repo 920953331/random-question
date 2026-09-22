@@ -10,9 +10,10 @@
   "scripts": {
     "start": "node server/server.mjs",
     "seed": "node server/seed.mjs",
-    "test": "node tests/test_stages.mjs && node tests/test_api.mjs && node tests/test_ui.mjs",
+    "test": "node tests/test_stages.mjs && node tests/test_api.mjs && node tests/test_deploy.mjs && node tests/test_ui.mjs",
     "test:algo": "node tests/test_stages.mjs",
     "test:api": "node tests/test_api.mjs",
+    "test:deploy": "node tests/test_deploy.mjs",
     "test:ui": "node tests/test_ui.mjs",
     "import": "python scripts/import_docx.py",
     "build:static": "node src/build.mjs"

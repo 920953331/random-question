@@ -12,6 +12,8 @@
 #   APP_DIR        可选，安装目录（默认 /opt/random-question）
 #   DATA_DIR       可选，数据目录（默认 /var/lib/random-question）
 #   SERVE_PUBLIC   可选，1=直接监听 0.0.0.0（默认），0=仅本机（配合 Nginx 反代）
+#   SYSTEMD_DIR    可选，systemd 单元目录（默认 /etc/systemd/system）
+#   SKIP_SYSTEMD   可选，1=只写单元文件、不调用 systemctl（用于预演/无 systemd 环境）
 
 set -euo pipefail
 
@@ -21,6 +23,8 @@ DATA_DIR="${DATA_DIR:-/var/lib/random-question}"
 PORT="${PORT:-8080}"
 SERVICE="random-question"
 SERVE_PUBLIC="${SERVE_PUBLIC:-1}"
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+SKIP_SYSTEMD="${SKIP_SYSTEMD:-0}"
 
 if [ -z "${REGISTER_CODE:-}" ]; then
   echo "错误：必须设置 REGISTER_CODE 环境变量（注册口令）" >&2
@@ -74,9 +78,11 @@ DB_PATH="$DATA_DIR/learning.db" node server/seed.mjs
 
 echo "==> 5/6 写入 systemd 服务"
 HOST_BIND="0.0.0.0"
-[ "$SERVE_PUBLIC" = "0" ] && HOST_BIND="127.0.0.1"
+if [ "$SERVE_PUBLIC" = "0" ]; then HOST_BIND="127.0.0.1"; fi
 
-cat > "/etc/systemd/system/${SERVICE}.service" <<EOF
+mkdir -p "$SYSTEMD_DIR"
+UNIT_FILE="${SYSTEMD_DIR}/${SERVICE}.service"
+cat > "$UNIT_FILE" <<EOF
 [Unit]
 Description=Random Question Review System (知识点复习系统)
 After=network.target
@@ -98,35 +104,50 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-chmod 600 "/etc/systemd/system/${SERVICE}.service"
-systemctl daemon-reload
-systemctl enable "$SERVICE" >/dev/null 2>&1 || true
-systemctl restart "$SERVICE"
+chmod 600 "$UNIT_FILE"
+echo "    已写入: $UNIT_FILE"
 
-echo "==> 6/6 检查运行状态"
-sleep 2
-if systemctl is-active --quiet "$SERVICE"; then
-  echo "    服务已启动 ✓"
+if [ "$SKIP_SYSTEMD" = "1" ] || ! command -v systemctl >/dev/null 2>&1; then
+  echo "    已跳过 systemctl（SKIP_SYSTEMD=$SKIP_SYSTEMD / 未检测到 systemctl）"
+  echo "    手动启动命令："
+  echo "      cd $APP_DIR && PORT=$PORT HOST=$HOST_BIND DB_PATH=$DATA_DIR/learning.db \\"
+  echo "        REGISTER_CODE='<你的口令>' $NODE_BIN server/server.mjs"
 else
-  echo "    服务未启动，最近日志：" >&2
-  journalctl -u "$SERVICE" -n 30 --no-pager >&2 || true
-  exit 1
+  systemctl daemon-reload
+  systemctl enable "$SERVICE" >/dev/null 2>&1 || true
+  systemctl restart "$SERVICE"
+
+  echo "==> 6/6 检查运行状态"
+  sleep 2
+  if systemctl is-active --quiet "$SERVICE"; then
+    echo "    服务已启动 ✓"
+  else
+    echo "    服务未启动，最近日志：" >&2
+    journalctl -u "$SERVICE" -n 30 --no-pager >&2 || true
+    exit 1
+  fi
+
+  # 本机自检
+  if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+    echo "    健康检查通过 ✓"
+  else
+    echo "    警告：本机健康检查失败，请查看 journalctl -u ${SERVICE}" >&2
+  fi
 fi
 
-# 本机自检
-if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
-  echo "    健康检查通过 ✓"
-else
-  echo "    警告：本机健康检查失败，请查看 journalctl -u ${SERVICE}" >&2
+IP=""
+if command -v hostname >/dev/null 2>&1; then
+  # 注意：set -e + pipefail 下，hostname -I 不受支持会让赋值返回非零而中断脚本，
+  # 故这里显式吞掉错误（末尾 || true），避免"部署其实成功了却报失败"。
+  IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 fi
-
-IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "======================================================"
 echo " 部署完成"
 echo " 访问地址: http://${IP:-<服务器IP>}:${PORT}/"
 echo " 注册口令: ${REGISTER_CODE}"
 echo " 数据文件: ${DATA_DIR}/learning.db"
+echo " 单元文件: $UNIT_FILE"
 echo " 服务管理: systemctl {status|restart|stop} ${SERVICE}"
 echo " 查看日志: journalctl -u ${SERVICE} -f"
 echo "======================================================"

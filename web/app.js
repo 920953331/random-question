@@ -1,10 +1,14 @@
-/* web/app.js —— 前端逻辑：登录/注册、复习卡片、三档自评、统计、范围设置、随机出题 */
+/* web/app.js —— 前端逻辑
+ * 学习：取 N 个未学知识点，三档自评任一选择都转为已学
+ * 复习：仅已学知识点，按遗忘曲线排队
+ * 会话进度：切页不重置，刷新页面也不丢（localStorage 按天保存）
+ */
 (function () {
   "use strict";
 
-  /* ------------------------------------------------ 基础工具 */
   const $ = (id) => document.getElementById(id);
 
+  /* ------------------------------------------------ 基础工具 */
   async function api(path, { method = "GET", body } = {}) {
     const res = await fetch(path, {
       method,
@@ -37,18 +41,92 @@
     return d.innerHTML;
   }
 
+  function todayStr() {
+    const d = new Date();
+    return (
+      d.getFullYear() +
+      "-" +
+      String(d.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(d.getDate()).padStart(2, "0")
+    );
+  }
+
   const RATING_LABEL = { know: "认识", vague: "模糊", forget: "忘记" };
+  const DEFAULT_BATCH = 20;
 
   /* ------------------------------------------------ 全局状态 */
   const state = {
     user: null,
-    subjects: [],        // [{subject,count}]
-    scope: [],           // 选中的科目（空=全部）
-    queue: [],           // 复习队列
-    idx: 0,
-    todayDue: 0,
-    todayFresh: 0,
+    subjects: [],
+    scope: [],
+    today: todayStr(),
+    sessions: {
+      // 学习会话
+      learn: { queue: [], idx: 0, batch: DEFAULT_BATCH, finished: false, day: null },
+      // 复习会话
+      review: { queue: [], idx: 0, finished: false, day: null },
+    },
   };
+
+  /* ------------------------------------------------ 会话进度持久化 */
+  const skey = (page) => `rq_session_${state.user ? state.user.id : "anon"}_${page}`;
+
+  function saveSession(page) {
+    if (!state.user) return;
+    const s = state.sessions[page];
+    try {
+      localStorage.setItem(
+        skey(page),
+        JSON.stringify({ day: s.day, queue: s.queue, idx: s.idx, batch: s.batch, finished: s.finished })
+      );
+    } catch {
+      /* localStorage 不可用时忽略 */
+    }
+  }
+
+  /** 从 localStorage 恢复会话；跨天或数据异常则放弃恢复。 */
+  function restoreSession(page) {
+    if (!state.user) return false;
+    try {
+      const raw = localStorage.getItem(skey(page));
+      if (!raw) return false;
+      const d = JSON.parse(raw);
+      if (!d || !Array.isArray(d.queue)) return false;
+      // 队列按天有效：复习的到期集合每天不同，学习批次也按天隔离
+      if (d.day !== state.today) return false;
+      const s = state.sessions[page];
+      s.queue = d.queue;
+      s.idx = Number.isFinite(d.idx) ? d.idx : 0;
+      s.finished = !!d.finished;
+      if (page === "learn" && Number.isFinite(d.batch)) s.batch = d.batch;
+      s.day = d.day;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function resetSession(page) {
+    const s = state.sessions[page];
+    s.queue = [];
+    s.idx = 0;
+    s.finished = false;
+    s.day = null;
+    if (state.user) {
+      try {
+        localStorage.removeItem(skey(page));
+      } catch {}
+    }
+  }
+
+  /** 页面加载时把过期的会话清掉（跨天）。 */
+  function dropStaleSessions() {
+    for (const page of ["learn", "review"]) {
+      const s = state.sessions[page];
+      if (s.day && s.day !== state.today) resetSession(page);
+    }
+  }
 
   /* ================================================ 登录 / 注册 */
   let mode = "login";
@@ -92,6 +170,8 @@
   $("logoutBtn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });
     state.user = null;
+    resetSession("learn");
+    resetSession("review");
     $("appView").classList.add("hidden");
     $("loginView").classList.remove("hidden");
     toast("已退出登录");
@@ -102,7 +182,8 @@
     $("loginView").classList.add("hidden");
     $("appView").classList.remove("hidden");
     await loadMe();
-    await showPage("review");
+    dropStaleSessions();
+    await showPage("learn");
   }
 
   async function loadMe() {
@@ -114,7 +195,7 @@
     state.scope = (r.settings && r.settings.subjects) || [];
     $("meName").textContent = r.user.username;
     renderSubjectPickers();
-    updateScopeLabel();
+    updateScopeLabels();
   }
 
   function handleUnauth() {
@@ -124,13 +205,22 @@
   }
 
   /* ================================================ 页面切换 */
-  const PAGES = { review: "reviewPage", random: "randomPage", stats: "statsPage", me: "mePage" };
+  const PAGES = {
+    learn: "learnPage",
+    review: "reviewPage",
+    random: "randomPage",
+    stats: "statsPage",
+    me: "mePage",
+  };
 
   document.querySelectorAll(".nav button").forEach((btn) => {
     btn.addEventListener("click", () => showPage(btn.dataset.page));
   });
 
   async function showPage(name) {
+    state.today = todayStr();
+    dropStaleSessions();
+
     for (const [key, id] of Object.entries(PAGES)) {
       $(id).classList.toggle("hidden", key !== name);
     }
@@ -139,82 +229,57 @@
     });
     window.scrollTo(0, 0);
 
-    if (name === "review") await loadReview();
+    // 注意：进入页面时优先恢复已有会话，不重新拉取，避免"切页就重头开始"
+    if (name === "learn") await enterLearn();
+    if (name === "review") await enterReview();
     if (name === "stats") await loadStats();
     if (name === "random") renderSubjectPickers();
   }
 
-  /* ================================================ 复习页 */
-  async function loadReview() {
-    $("reviewBody").innerHTML = '<div class="card center muted" style="padding:30px">加载中…</div>';
-    const r = await api("/api/review/today");
+  /* ================================================ 提醒角标（待复习数） */
+  async function refreshBadge() {
+    const r = await api("/api/stats");
     if (r.status === 401) return handleUnauth();
-    if (!r.ok) return ($("reviewBody").innerHTML = `<div class="card err">${esc(r.error || "加载失败")}</div>`);
-
-    state.todayDue = r.dueCount;
-    state.todayFresh = r.freshCount;
-    state.queue = [...r.due, ...r.fresh];
-    state.idx = 0;
-
-    updateBadge(r.dueCount, r.freshCount);
-    updateScopeLabel();
-    renderCard();
-  }
-
-  function updateBadge(due, fresh) {
-    const total = due + fresh;
+    if (!r.ok) return;
     const badge = $("navBadge");
-    if (total > 0) {
-      badge.textContent = total > 99 ? "99+" : String(total);
+    const due = r.due || 0;
+    if (due > 0) {
+      badge.textContent = due > 99 ? "99+" : String(due);
       badge.classList.remove("hidden");
     } else {
       badge.classList.add("hidden");
     }
   }
 
-  function updateScopeLabel() {
-    $("reviewScope").textContent =
-      state.scope.length === 0 ? "全部科目" : state.scope.join("、");
+  function updateScopeLabels() {
+    const txt = state.scope.length === 0 ? "全部科目" : state.scope.join("、");
+    $("reviewScope").textContent = txt;
+    $("learnScope").textContent = txt;
   }
 
-  function renderCard() {
-    const total = state.queue.length;
-    if (total === 0) {
-      $("reviewProgress").textContent = "今日无内容";
-      $("reviewBody").innerHTML = doneBox(
-        "🎉",
-        "今日复习已完成",
-        "没有到期知识点，题库也都学过啦。可以点「出题」自由练习。"
-      );
-      return;
-    }
+  /* ================================================ 通用卡片渲染 */
+  function doneBox(icon, title, sub, btnId, btnLabel) {
+    return `
+      <div class="card done-box">
+        <div class="big">${icon}</div>
+        <h3>${esc(title)}</h3>
+        <div class="muted" style="font-size:14px">${sub}</div>
+        ${btnId ? `<button class="btn" id="${btnId}" type="button" style="margin-top:18px">${esc(btnLabel)}</button>` : ""}
+      </div>`;
+  }
 
-    if (state.idx >= total) {
-      $("reviewProgress").textContent = `完成 ${total} / ${total}`;
-      const learnedNow = state.queue.filter((q) => !q.isNew).length;
-      $("reviewBody").innerHTML = doneBox(
-        "✅",
-        "本轮复习完成",
-        `共处理 ${total} 张卡片（含 ${state.todayFresh} 个新知识点提醒）。<br>进度已同步到服务器。`,
-        true
-      );
-      bindDoneButtons();
-      return;
-    }
-
-    const q = state.queue[state.idx];
-    $("reviewProgress").textContent = `${state.idx + 1} / ${total}`;
-
+  function cardHtml(q, kind) {
     const previews = q.previews || { know: 1, vague: 1, forget: 1 };
-    const tagHtml = q.isNew
-      ? '<span class="tag new">未学 · 仅提醒</span>'
-      : `<span class="tag">${esc(q.subject)}</span>`;
-
-    let html = `
+    const tag = `<span class="tag">${esc(q.subject)}</span>`;
+    const hint =
+      kind === "learn"
+        ? "这是未学知识点。选任意一项都会把它标记为<b>已学</b>，并开始按遗忘曲线安排复习。"
+        : "回忆答案后，按实际掌握程度自评。";
+    return `
       <div class="qcard">
-        ${tagHtml}
+        ${tag}
         <div class="qtext">${esc(q.text)}</div>
-        ${q.isNew ? '<div class="hint">这是未学知识点，仅作提醒；评价不会计入已学。</div>' : '<div class="hint">回忆答案后，按实际掌握程度自评。</div>'}
+        <div class="hint">${hint}</div>
       </div>
       <div class="rate-row">
         <button class="rate-btn know" data-rating="know" type="button">
@@ -226,77 +291,242 @@
         <button class="rate-btn forget" data-rating="forget" type="button">
           <span>忘记</span><span class="sub">${previews.forget}天后</span>
         </button>
-      </div>
-    `;
-
-    if (q.isNew) {
-      html += `<div class="add-row"><button class="btn ghost" id="addBtn" type="button">＋ 加入复习（转为已学）</button></div>`;
-    }
-
-    $("reviewBody").innerHTML = html;
-
-    document.querySelectorAll(".rate-btn").forEach((b) => {
-      b.addEventListener("click", () => onRate(q, b.dataset.rating));
-    });
-    const addBtn = $("addBtn");
-    if (addBtn) addBtn.addEventListener("click", () => onAdd(q));
-  }
-
-  function doneBox(icon, title, sub, withAgain) {
-    return `
-      <div class="card done-box">
-        <div class="big">${icon}</div>
-        <h3>${esc(title)}</h3>
-        <div class="muted" style="font-size:14px">${sub}</div>
-        ${withAgain ? '<button class="btn" id="againBtn" type="button" style="margin-top:18px">再复习一轮</button>' : ""}
       </div>`;
   }
 
-  function bindDoneButtons() {
-    const b = $("againBtn");
-    if (b) b.addEventListener("click", () => loadReview());
+  /* ================================================ 学习页 */
+  async function enterLearn() {
+    const s = state.sessions.learn;
+    // 已有会话（含已完成）→ 直接恢复渲染，不重新拉取
+    if (s.queue.length > 0) {
+      renderLearnCard();
+      return;
+    }
+    // 尝试从 localStorage 恢复（刷新页面后不回退）
+    if (restoreSession("learn")) {
+      renderLearnCard();
+      return;
+    }
+    await renderLearnStart();
   }
 
-  async function onRate(q, rating) {
-    document.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = true));
-    const path = q.isNew ? "/api/review/rate-fresh" : "/api/review/rate";
-    const r = await api(path, { method: "POST", body: { questionId: q.id, rating } });
+  async function renderLearnStart() {
+    const s = state.sessions.learn;
+    $("learnProgress").textContent = "准备学习";
+    $("learnBody").innerHTML = '<div class="card center muted" style="padding:24px">加载中…</div>';
+
+    const r = await api("/api/learn/summary");
+    if (r.status === 401) return handleUnauth();
+    if (!r.ok) return ($("learnBody").innerHTML = `<div class="card err">${esc(r.error || "加载失败")}</div>`);
+
+    const remaining = r.remaining ?? 0;
+    const learned = r.learned ?? 0;
+
+    if (remaining === 0) {
+      $("learnProgress").textContent = "已全部学完";
+      $("learnBody").innerHTML = doneBox(
+        "🎉",
+        "所有知识点都学过了",
+        `已学 ${learned} 个。去「复习」按遗忘曲线巩固吧。`
+      );
+      return;
+    }
+
+    $("learnBody").innerHTML = `
+      <div class="card">
+        <h2 class="sec">开始学习新知识点</h2>
+        <div class="muted" style="font-size:14px;margin-bottom:14px">
+          未学 <b>${remaining}</b> 个 ｜ 已学 <b>${learned}</b> 个
+        </div>
+        <label class="field">
+          <span>这一批学多少个？</span>
+          <input id="batchInput" type="number" min="1" max="200" value="${s.batch}" style="width:100%">
+        </label>
+        <div class="quick" id="batchQuick" style="margin-bottom:14px">
+          ${[10, 20, 30, 50]
+            .map((n) => `<button type="button" data-batch="${n}" class="${n === s.batch ? "on" : ""}">${n}</button>`)
+            .join("")}
+        </div>
+        <button class="btn" id="learnStart" type="button">开始学习</button>
+        <div class="muted center" style="font-size:12px;margin-top:8px">
+          每张卡片选「认识 / 模糊 / 忘记」任一项，都会把它标记为已学
+        </div>
+      </div>`;
+
+    $("batchQuick").querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => {
+        $("batchInput").value = b.dataset.batch;
+        $("batchQuick").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      });
+    });
+    $("learnStart").addEventListener("click", startLearn);
+  }
+
+  async function startLearn() {
+    const raw = Number($("batchInput").value);
+    const count = Math.max(1, Math.min(Number.isFinite(raw) ? raw : DEFAULT_BATCH, 200));
+    const s = state.sessions.learn;
+    s.batch = count;
+
+    $("learnBody").innerHTML = '<div class="card center muted" style="padding:24px">抽取知识点…</div>';
+    const r = await api("/api/learn/next?count=" + count);
+    if (r.status === 401) return handleUnauth();
+    if (!r.ok) return ($("learnBody").innerHTML = `<div class="card err">${esc(r.error || "加载失败")}</div>`);
+
+    if (r.questions.length === 0) {
+      resetSession("learn");
+      return renderLearnStart();
+    }
+
+    s.queue = r.questions;
+    s.idx = 0;
+    s.finished = false;
+    s.day = state.today;
+    saveSession("learn");
+    renderLearnCard();
+  }
+
+  function renderLearnCard() {
+    const s = state.sessions.learn;
+    const total = s.queue.length;
+
+    if (s.idx >= total) {
+      s.finished = true;
+      saveSession("learn");
+      $("learnProgress").textContent = `完成 ${total} / ${total}`;
+      $("learnBody").innerHTML = doneBox(
+        "✅",
+        "这一批学完了",
+        `本批 ${total} 个知识点已全部标记为已学，并已按遗忘曲线排好复习时间。`,
+        "learnAgain",
+        "再学一批"
+      );
+      $("learnAgain").addEventListener("click", () => {
+        resetSession("learn");
+        renderLearnStart();
+      });
+      refreshBadge();
+      return;
+    }
+
+    const q = s.queue[s.idx];
+    $("learnProgress").textContent = `${s.idx + 1} / ${total}`;
+    $("learnBody").innerHTML = cardHtml(q, "learn");
+
+    document.querySelectorAll("#learnBody .rate-btn").forEach((b) => {
+      b.addEventListener("click", () => onLearnRate(q, b.dataset.rating));
+    });
+  }
+
+  async function onLearnRate(q, rating) {
+    document.querySelectorAll("#learnBody .rate-btn").forEach((b) => (b.disabled = true));
+    const r = await api("/api/learn/rate", { method: "POST", body: { questionId: q.id, rating } });
     if (r.status === 401) return handleUnauth();
     if (!r.ok) {
       toast(r.error || "提交失败");
-      document.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = false));
+      document.querySelectorAll("#learnBody .rate-btn").forEach((b) => (b.disabled = false));
       return;
     }
-
-    if (q.isNew) {
-      if (r.result && r.result.redirect === "learned") {
-        toast("该题已是已学，按复习处理");
-      } else {
-        toast("已记录提醒（不计入已学）");
-      }
-    } else {
-      const d = r.result.intervalDays;
-      toast(`${RATING_LABEL[rating]} · ${d} 天后再复习`);
-    }
-
-    state.idx++;
-    renderCard();
+    toast(`已标记为已学 · ${r.result.intervalDays} 天后复习`);
+    state.sessions.learn.idx++;
+    saveSession("learn");
+    renderLearnCard();
   }
 
-  async function onAdd(q) {
-    const btn = $("addBtn");
-    if (btn) btn.disabled = true;
-    const r = await api("/api/review/add", { method: "POST", body: { questionId: q.id } });
-    if (r.status === 401) return handleUnauth();
-    if (!r.ok) {
-      toast(r.error || "操作失败");
-      if (btn) btn.disabled = false;
+  /* ================================================ 复习页 */
+  async function enterReview() {
+    const s = state.sessions.review;
+    if (s.queue.length > 0) {
+      renderReviewCard();
       return;
     }
-    toast(`已加入复习 · ${r.result.intervalDays} 天后复习`);
-    state.todayFresh = Math.max(0, state.todayFresh);
-    state.idx++;
-    renderCard();
+    if (restoreSession("review")) {
+      renderReviewCard();
+      return;
+    }
+    await loadReviewQueue();
+  }
+
+  async function loadReviewQueue() {
+    $("reviewProgress").textContent = "加载中…";
+    $("reviewBody").innerHTML = '<div class="card center muted" style="padding:30px">加载中…</div>';
+
+    const r = await api("/api/review/today");
+    if (r.status === 401) return handleUnauth();
+    if (!r.ok) return ($("reviewBody").innerHTML = `<div class="card err">${esc(r.error || "加载失败")}</div>`);
+
+    const s = state.sessions.review;
+    s.queue = r.due || [];
+    s.idx = 0;
+    s.finished = false;
+    s.day = state.today;
+    saveSession("review");
+    renderReviewCard();
+    refreshBadge();
+  }
+
+  function renderReviewCard() {
+    const s = state.sessions.review;
+    const total = s.queue.length;
+
+    if (total === 0) {
+      $("reviewProgress").textContent = "今日无待复习";
+      $("reviewBody").innerHTML = doneBox(
+        "🎉",
+        "今日复习已完成",
+        "没有到期的已学知识点。<br>去「学习」继续学新知识点，或稍后再来。",
+        "reviewReload",
+        "重新检查"
+      );
+      $("reviewReload").addEventListener("click", () => {
+        resetSession("review");
+        loadReviewQueue();
+      });
+      return;
+    }
+
+    if (s.idx >= total) {
+      s.finished = true;
+      saveSession("review");
+      $("reviewProgress").textContent = `完成 ${total} / ${total}`;
+      $("reviewBody").innerHTML = doneBox(
+        "✅",
+        "本轮复习完成",
+        `共复习 ${total} 个知识点，进度已同步到服务器。`,
+        "reviewAgain",
+        "看看还有没有到期的"
+      );
+      $("reviewAgain").addEventListener("click", () => {
+        resetSession("review");
+        loadReviewQueue();
+      });
+      refreshBadge();
+      return;
+    }
+
+    const q = s.queue[s.idx];
+    $("reviewProgress").textContent = `${s.idx + 1} / ${total}`;
+    $("reviewBody").innerHTML = cardHtml(q, "review");
+
+    document.querySelectorAll("#reviewBody .rate-btn").forEach((b) => {
+      b.addEventListener("click", () => onReviewRate(q, b.dataset.rating));
+    });
+  }
+
+  async function onReviewRate(q, rating) {
+    document.querySelectorAll("#reviewBody .rate-btn").forEach((b) => (b.disabled = true));
+    const r = await api("/api/review/rate", { method: "POST", body: { questionId: q.id, rating } });
+    if (r.status === 401) return handleUnauth();
+    if (!r.ok) {
+      toast(r.error || "提交失败");
+      document.querySelectorAll("#reviewBody .rate-btn").forEach((b) => (b.disabled = false));
+      return;
+    }
+    toast(`${RATING_LABEL[rating]} · ${r.result.intervalDays} 天后再复习`);
+    state.sessions.review.idx++;
+    saveSession("review");
+    renderReviewCard();
+    refreshBadge();
   }
 
   /* ================================================ 统计页 */
@@ -308,7 +538,9 @@
     $("statsGrid").innerHTML = `
       <div class="stat-box"><div class="num">${r.total}</div><div class="lbl">题库总题数</div></div>
       <div class="stat-box"><div class="num">${r.learned}</div><div class="lbl">已学知识点</div></div>
+      <div class="stat-box"><div class="num">${r.remaining}</div><div class="lbl">未学知识点</div></div>
       <div class="stat-box"><div class="num">${r.due}</div><div class="lbl">今日待复习</div></div>
+      <div class="stat-box"><div class="num">${r.learnActions || 0}</div><div class="lbl">累计学习次数</div></div>
       <div class="stat-box"><div class="num">${r.reviews}</div><div class="lbl">累计复习次数</div></div>
     `;
 
@@ -339,7 +571,6 @@
 
   /* ================================================ 随机出题页 */
   function renderSubjectPickers() {
-    // 「我的」页的复习范围选择
     const meBox = $("meSubjects");
     if (meBox) {
       if (state.subjects.length === 0) {
@@ -362,13 +593,12 @@
               ? state.scope.filter((x) => x !== sub)
               : [...state.scope, sub];
             renderSubjectPickers();
-            updateScopeLabel();
+            updateScopeLabels();
           });
         });
       }
     }
 
-    // 「出题」页的科目选择（独立于复习范围，默认与复习范围一致）
     const rBox = $("randomSubjects");
     if (rBox) {
       if (state.subjects.length === 0) {
@@ -400,8 +630,12 @@
     const r = await api("/api/settings", { method: "POST", body: { subjects: state.scope } });
     if (r.status === 401) return handleUnauth();
     if (!r.ok) return toast(r.error || "保存失败");
-    toast("复习范围已保存");
-    updateScopeLabel();
+    // 范围变了，清掉当前会话，避免队列与新范围不一致
+    resetSession("learn");
+    resetSession("review");
+    state.randomScope = undefined;
+    toast("范围已保存");
+    updateScopeLabels();
   });
 
   $("randomGo").addEventListener("click", async () => {
@@ -441,8 +675,10 @@
       $("loginView").classList.add("hidden");
       $("appView").classList.remove("hidden");
       renderSubjectPickers();
-      updateScopeLabel();
-      await showPage("review");
+      updateScopeLabels();
+      dropStaleSessions();
+      await showPage("learn");
+      refreshBadge();
     } else {
       setMode("login");
     }

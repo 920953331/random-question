@@ -8,7 +8,9 @@ import { join } from "node:path";
 // 这里先把 DB_PATH 指向临时目录，避免在项目里生成 var/learning.db。
 process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), "rq-algo-")), "algo.db");
 
-const { STAGES, intervalDays, nextStage, ratingPreviews } = await import("../server/review.mjs");
+const { STAGES, intervalDays, nextStage, ratingPreviews, freshPreviews, learnedPreviews } = await import(
+  "../server/review.mjs"
+);
 
 let pass = 0, fail = 0;
 function ok(cond, msg, extra) {
@@ -58,6 +60,22 @@ ok(p5.forget === 1, "stage5(30天)：忘记 → 1 天后", p5);
 
 const p8 = ratingPreviews(8); // 最高档
 ok(p8.know === 180, "最高档：认识仍 180 天后（封顶）", p8);
+
+console.log("== 学习阶段：三档都转已学，仅首次间隔不同 ==");
+const fp = freshPreviews();
+ok(fp.know === 2, "学习时「认识」→ 2 天后首次复习", fp);
+ok(fp.vague === 1, "学习时「模糊」→ 1 天后首次复习", fp);
+ok(fp.forget === 1, "学习时「忘记」→ 1 天后首次复习", fp);
+// 首次学习的间隔 = 以"第 1 档"为基准套用评价
+ok(fp.know === intervalDays(nextStage(0, "know")), "首次间隔与 nextStage(0,*) 一致（认识）");
+ok(fp.vague === intervalDays(nextStage(0, "vague")), "首次间隔与 nextStage(0,*) 一致（模糊）");
+ok(fp.forget === intervalDays(nextStage(0, "forget")), "首次间隔与 nextStage(0,*) 一致（忘记）");
+ok(JSON.stringify(freshPreviews()) === JSON.stringify(ratingPreviews(0)), "首次学习预览 == ratingPreviews(0)");
+
+console.log("== 复习阶段：按当前档位推进 ==");
+ok(JSON.stringify(learnedPreviews(3)) === JSON.stringify(ratingPreviews(3)), "复习预览按当前 stage 计算");
+ok(learnedPreviews(3).know === 15 && learnedPreviews(3).vague === 4,
+  "stage3(7天)：认识→15天，模糊→4天", learnedPreviews(3));
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

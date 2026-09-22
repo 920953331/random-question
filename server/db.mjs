@@ -238,29 +238,11 @@ export function logReview(userId, questionId, rating, isNew, day) {
   ).run(userId, questionId, rating, isNew ? 1 : 0, day, new Date().toISOString());
 }
 
-/** 统计每个未学题被"新知识点提醒"过的次数：Map<questionId, count>。 */
-export function newRemindCounts(userId) {
-  const rows = db
-    .prepare(
-      `SELECT question_id, COUNT(*) AS c FROM review_log
-       WHERE user_id = ? AND is_new = 1 GROUP BY question_id`
-    )
-    .all(userId);
-  const m = new Map();
-  for (const r of rows) m.set(r.question_id, r.c);
-  return m;
-}
-
-/** 某用户当天已提醒过的未学题 id 集合（避免同一天重复提醒同一题）。 */
-export function remindedTodayIds(userId, day) {
-  return new Set(
-    db
-      .prepare(
-        "SELECT DISTINCT question_id FROM review_log WHERE user_id = ? AND is_new = 1 AND day = ?"
-      )
-      .all(userId, day)
-      .map((r) => r.question_id)
-  );
+/** 统计"学习阶段"首次评价过的题数（is_new = 1 表示学习阶段的评价）。 */
+export function countLearnActions(userId) {
+  return db
+    .prepare("SELECT COUNT(*) AS c FROM review_log WHERE user_id = ? AND is_new = 1")
+    .get(userId).c;
 }
 
 /* ---------------------------------------------------------------- 统计 */

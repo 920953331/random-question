@@ -17,13 +17,16 @@ import {
   ratingBreakdown,
   recentActivity,
   questionById,
+  countLearnActions,
 } from "./db.mjs";
 import { register, login, logout, userFromToken, REGISTER_CODE } from "./auth.mjs";
 import {
-  todayQueue,
+  dueQueue,
   rateLearned,
-  rateFresh,
-  addToReview,
+  pickUnlearned,
+  learnQuestion,
+  unlearnedCount,
+  learnedCount,
   randomQuestions,
   STAGES,
 } from "./review.mjs";
@@ -271,23 +274,21 @@ async function handleApi(req, res, pathname, query) {
     return sendJson(res, 200, { ok: true, settings: getSettings(user.id) });
   }
 
-  // 今日复习队列
+  // 复习队列：仅「已学」且到期的知识点，全部列出、不限量
   if (pathname === "/api/review/today" && method === "GET") {
     const today = ymd();
     const { subjects } = getSettings(user.id);
-    const q = todayQueue(user.id, today, { subjects });
+    const due = dueQueue(user.id, today, subjects);
     return sendJson(res, 200, {
       ok: true,
       today,
-      dueCount: q.due.length,
-      freshCount: q.fresh.length,
-      due: q.due,
-      fresh: q.fresh,
+      dueCount: due.length,
+      due,
       subjects,
     });
   }
 
-  // 对已学知识点自评
+  // 复习阶段自评（对已学知识点）
   if (pathname === "/api/review/rate" && method === "POST") {
     const body = req.parsedBody || {};
     try {
@@ -298,26 +299,44 @@ async function handleApi(req, res, pathname, query) {
     }
   }
 
-  // 对未学提醒自评（不转已学）
-  if (pathname === "/api/review/rate-fresh" && method === "POST") {
+  // 学习：取一批「未学」知识点
+  if (pathname === "/api/learn/next" && method === "GET") {
+    const today = ymd();
+    const { subjects } = getSettings(user.id);
+    const raw = Number(query.get("count") ?? 20);
+    const count = Math.max(1, Math.min(Number.isFinite(raw) ? raw : 20, 200));
+    const questions = pickUnlearned(user.id, subjects, count);
+    return sendJson(res, 200, {
+      ok: true,
+      today,
+      count: questions.length,
+      questions,
+      remaining: unlearnedCount(user.id, subjects),
+      learned: learnedCount(user.id, subjects),
+      subjects,
+    });
+  }
+
+  // 学习阶段自评：三档任一选择都转为「已学」
+  if (pathname === "/api/learn/rate" && method === "POST") {
     const body = req.parsedBody || {};
     try {
-      const r = rateFresh(user.id, Number(body.questionId), String(body.rating), ymd());
+      const r = learnQuestion(user.id, Number(body.questionId), String(body.rating), ymd());
       return sendJson(res, 200, { ok: true, result: r });
     } catch (e) {
       return sendJson(res, 400, { ok: false, error: e.message });
     }
   }
 
-  // 把未学知识点加入复习（转为已学）
-  if (pathname === "/api/review/add" && method === "POST") {
-    const body = req.parsedBody || {};
-    try {
-      const r = addToReview(user.id, Number(body.questionId), ymd());
-      return sendJson(res, 200, { ok: true, result: r });
-    } catch (e) {
-      return sendJson(res, 400, { ok: false, error: e.message });
-    }
+  // 学习进度概览（未学/已学数量）
+  if (pathname === "/api/learn/summary" && method === "GET") {
+    const { subjects } = getSettings(user.id);
+    return sendJson(res, 200, {
+      ok: true,
+      learned: learnedCount(user.id, subjects),
+      remaining: unlearnedCount(user.id, subjects),
+      subjects,
+    });
   }
 
   // 随机出题（保留原功能，不记进度）
@@ -333,12 +352,15 @@ async function handleApi(req, res, pathname, query) {
   // 统计
   if (pathname === "/api/stats" && method === "GET") {
     const today = ymd();
+    const { subjects } = getSettings(user.id);
     return sendJson(res, 200, {
       ok: true,
       total: countQuestions(),
       learned: countLearned(user.id),
+      remaining: unlearnedCount(user.id, subjects),
       due: countDue(user.id, today),
       reviews: countReviews(user.id),
+      learnActions: countLearnActions(user.id),
       byStage: statsByStage(user.id),
       ratings: ratingBreakdown(user.id),
       recent: recentActivity(user.id, 14),

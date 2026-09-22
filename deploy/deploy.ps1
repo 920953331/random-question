@@ -101,12 +101,18 @@ if ($DryRun) {
 
 # ---------------------------------------------------------------- 4. 远程安装
 Write-Step "4/5 远程安装（解包 + 写入 systemd + 启动）"
+
+# 安装脚本需要写 /etc/systemd/system，非 root 用户需加 sudo。
+# 服务器上 ubuntu 等账号通常是免密 sudo，故用 sudo -n（非交互）。
+$sudoPrefix = if ($ServerUser -eq "root") { "" } else { "sudo -n " }
+if ($sudoPrefix) { Write-Host "    使用 $ServerUser 用户，将用 sudo -n 提权" }
+
 $remoteCmd = @(
   "set -e",
   "rm -rf $remoteTmp",
   "mkdir -p $remoteTmp",
   "tar -xzf $remoteTmp.tar.gz -C $remoteTmp",
-  "REGISTER_CODE='$RegisterCode' PORT=$AppPort bash $remoteTmp/deploy/install-on-server.sh $remoteTmp"
+  "${sudoPrefix}env REGISTER_CODE='$RegisterCode' PORT=$AppPort bash $remoteTmp/deploy/install-on-server.sh $remoteTmp"
 ) -join " && "
 
 if ($DryRun) {
